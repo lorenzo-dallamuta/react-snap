@@ -19,6 +19,7 @@ const defaultOptions = {
   destination: null,
   concurrency: 4,
   include: ["/"],
+  exclude: [],
   userAgent: "ReactSnap",
   // 4 params below will be refactored to one: `puppeteer: {}`
   // https://github.com/stereobooster/react-snap/issues/120
@@ -51,6 +52,7 @@ const defaultOptions = {
   removeBlobs: true,
   fixInsertRule: true,
   skipThirdPartyRequests: false,
+  includedThirdPartyRequests: [],
   cacheAjaxRequests: false,
   http2PushManifest: false,
   // may use some glob solution in the future, if required
