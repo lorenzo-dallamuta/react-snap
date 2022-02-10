@@ -1,6 +1,8 @@
 const puppeteer = require("puppeteer");
 const _ = require("highland");
 const url = require("url");
+const glob = require("glob-to-regexp");
+// @ts-ignore
 const mapStackTrace = require("sourcemapped-stacktrace-node").default;
 const path = require("path");
 const fs = require("fs");
@@ -12,20 +14,37 @@ const errorToString = jsHandle =>
 const objectToJson = jsHandle => jsHandle.jsonValue();
 
 /**
- * @param {{page: Page, options: {skipThirdPartyRequests: true}, basePath: string }} opt
+ * @param {request: {url: function, abort: function, continue: function}, basePath: string, includedThirdPartyRequests: []}
+ * @return {undefined}
+ */
+const thirdPartyRequestHandler = (
+  request,
+  basePath,
+  includedThirdPartyRequests
+) => {
+  const url = request.url();
+  if (
+    url.startsWith(basePath) ||
+    includedThirdPartyRequests.some(d => url.startsWith(d))
+  ) {
+    request.continue();
+  } else {
+    request.abort();
+  }
+};
+
+/**
+ * @param {{page: Page, options: {skipThirdPartyRequests: true, includedThirdPartyRequests: []}, basePath: string }} opt
  * @return {Promise<void>}
  */
 const skipThirdPartyRequests = async opt => {
   const { page, options, basePath } = opt;
-  if (!options.skipThirdPartyRequests) return;
+  const { skipThirdPartyRequests, includedThirdPartyRequests } = options;
+  if (!skipThirdPartyRequests) return;
   await page.setRequestInterception(true);
-  page.on("request", request => {
-    if (request.url().startsWith(basePath)) {
-      request.continue();
-    } else {
-      request.abort();
-    }
-  });
+  page.on("request", request =>
+    thirdPartyRequestHandler(request, basePath, includedThirdPartyRequests)
+  );
 };
 
 /**
@@ -140,6 +159,7 @@ const crawl = async opt => {
     publicPath,
     sourceDir
   } = opt;
+  const exclude = options.exclude.map(g => glob(g, { extended: true, globstar: true}));
   let shuttingDown = false;
   let streamClosed = false;
 
@@ -173,8 +193,11 @@ const crawl = async opt => {
    * @returns {void}
    */
   const addToQueue = newUrl => {
-    const { hostname, search, hash, port } = url.parse(newUrl);
+    const { hostname, search, hash, port, pathname } = url.parse(newUrl);
     newUrl = newUrl.replace(`${search || ""}${hash || ""}`, "");
+
+    // Implements pathname filtering, from https://github.com/harrygreen/react-snap/tree/add-allowedThirdPartyDomains-option
+    if (exclude.filter(regex => regex.test(pathname)).length > 0) return;
 
     // Ensures that only link on the same port are crawled
     //
@@ -291,6 +314,7 @@ const crawl = async opt => {
 };
 
 exports.skipThirdPartyRequests = skipThirdPartyRequests;
+exports.thirdPartyRequestHandler = thirdPartyRequestHandler;
 exports.enableLogging = enableLogging;
 exports.getLinks = getLinks;
 exports.crawl = crawl;
